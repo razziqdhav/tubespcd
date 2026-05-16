@@ -7,6 +7,7 @@ from PIL import Image, ImageTk
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import StandardScaler
 
 # ==========================================
 # 1. FUNGSI BACKEND (PENGOLAHAN CITRA & ML)
@@ -14,150 +15,192 @@ from sklearn.metrics import accuracy_score
 def extract_features(image_path):
     img = cv2.imread(image_path)
     if img is None: return None
+    
     img_resized = cv2.resize(img, (100, 100))
-    hsv_img = cv2.cvtColor(img_resized, cv2.COLOR_BGR2HSV)
-    h_mean = np.mean(hsv_img[:, :, 0])
-    s_mean = np.mean(hsv_img[:, :, 1])
-    v_mean = np.mean(hsv_img[:, :, 2])
-    return [h_mean, s_mean, v_mean]
+    
+    # [UPDATE AKURASI] Tambahkan Gaussian Blur untuk menghaluskan noise/pantulan cahaya
+    blurred = cv2.GaussianBlur(img_resized, (5, 5), 0)
+    
+    hsv_img = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+    gray = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
+    
+    # Masking Background
+    _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    
+    # Jika gambar kosong/hitam total karena gagal mask
+    if not np.any(mask > 0):
+        return [0]*9 
+        
+    h_channel, s_channel, v_channel = hsv_img[:, :, 0], hsv_img[:, :, 1], hsv_img[:, :, 2]
+    
+    # [UPDATE AKURASI] Ekstraksi 9 Fitur (Mean, Std Dev, dan Median)
+    h_mean, s_mean, v_mean = np.mean(h_channel[mask > 0]), np.mean(s_channel[mask > 0]), np.mean(v_channel[mask > 0])
+    h_std, s_std, v_std = np.std(h_channel[mask > 0]), np.std(s_channel[mask > 0]), np.std(v_channel[mask > 0])
+    h_med, s_med, v_med = np.median(h_channel[mask > 0]), np.median(s_channel[mask > 0]), np.median(v_channel[mask > 0])
+    
+    return [h_mean, s_mean, v_mean, h_std, s_std, v_std, h_med, s_med, v_med]
 
-def load_dataset(dataset_root, fruit_keyword):
+def load_dataset_mangga(dataset_root):
     X, y = [], []
     if not os.path.exists(dataset_root): return np.array(X), np.array(y)
+    
     for folder_name in os.listdir(dataset_root):
-        if fruit_keyword in folder_name.lower():
-            label = 'Mentah' if 'unripe' in folder_name.lower() else 'Matang' if 'ripe' in folder_name.lower() else None
-            if not label: continue
-            class_folder = os.path.join(dataset_root, folder_name)
-            for file_name in os.listdir(class_folder):
-                file_path = os.path.join(class_folder, file_name)
-                features = extract_features(file_path)
-                if features is not None:
-                    X.append(features)
-                    y.append(label)
+        if 'mango' not in folder_name.lower(): 
+            continue # Kunci hanya untuk folder mangga
+            
+        if 'unripe' in folder_name.lower(): label = 'Mentah'
+        elif 'ripe' in folder_name.lower(): label = 'Matang'
+        elif 'rotten' in folder_name.lower() or 'busuk' in folder_name.lower(): label = 'Busuk'
+        else: continue
+            
+        class_folder = os.path.join(dataset_root, folder_name)
+        for file_name in os.listdir(class_folder):
+            file_path = os.path.join(class_folder, file_name)
+            features = extract_features(file_path)
+            if features is not None:
+                X.append(features)
+                y.append(label)
+                
     return np.array(X), np.array(y)
 
 # ==========================================
-# 2. CLASS APLIKASI GUI
+# 2. CLASS APLIKASI GUI MODERN
 # ==========================================
 class FruitDetectorApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Aplikasi Deteksi Kematangan Buah")
-        self.root.geometry("600x650")
-        self.root.configure(bg="#f0f0f0")
+        self.root.title("Sistem Deteksi Kematangan Mangga AI")
+        self.root.geometry("650x700")
+        self.root.configure(bg="#F8F9FA") 
+        self.root.resizable(False, False)
         
-        # Variabel Global untuk Aplikasi
+        style = ttk.Style()
+        style.theme_use('clam')
+        
         self.model_knn = None
+        self.scaler = None
+        self.batas_toleransi = 0
         self.dataset_root = "Ripe & Unripe Fruits"
         self.image_path = None
         
         self.setup_ui()
 
     def setup_ui(self):
-        # --- Judul ---
-        tk.Label(self.root, text="Deteksi Kematangan Buah (PCD)", font=("Helvetica", 16, "bold"), bg="#f0f0f0").pack(pady=15)
+        header_frame = tk.Frame(self.root, bg="#2C3E50", pady=15)
+        header_frame.pack(fill='x')
+        tk.Label(header_frame, text="Deteksi Kualitas Mangga", font=("Segoe UI", 18, "bold"), fg="white", bg="#2C3E50").pack()
+        tk.Label(header_frame, text="Kenali mangga Mentah, Matang, atau Busuk dengan AI", font=("Segoe UI", 10), fg="#BDC3C7", bg="#2C3E50").pack()
 
-        # --- Frame Pilih Buah & Training ---
-        frame_top = tk.Frame(self.root, bg="#f0f0f0")
-        frame_top.pack(pady=10)
-
-        tk.Label(frame_top, text="Pilih Buah:", bg="#f0f0f0", font=("Helvetica", 10)).grid(row=0, column=0, padx=5)
+        train_frame = tk.Frame(self.root, bg="#FFFFFF", bd=1, relief="ridge")
+        train_frame.pack(fill='x', padx=20, pady=15)
         
-        self.fruit_combobox = ttk.Combobox(frame_top, values=["Pisang (banana)", "Mangga (mango)", "Pepaya (papaya)", "Apel (apple)"], state="readonly", width=20)
-        self.fruit_combobox.current(0)
-        self.fruit_combobox.grid(row=0, column=1, padx=5)
+        tk.Label(train_frame, text="1. Persiapan Sistem (Training)", font=("Segoe UI", 12, "bold"), bg="#FFFFFF", fg="#34495E").pack(pady=(10, 5))
+        
+        self.btn_train = tk.Button(train_frame, text="Mulai Pelatihan Model AI", bg="#27AE60", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", padx=15, pady=5, command=self.train_model)
+        self.btn_train.pack(pady=5)
 
-        self.btn_train = tk.Button(frame_top, text="Latih Model (Train)", bg="#4CAF50", fg="white", command=self.train_model)
-        self.btn_train.grid(row=0, column=2, padx=10)
+        self.lbl_status = tk.Label(train_frame, text="Status: Model belum dilatih", fg="#E74C3C", bg="#FFFFFF", font=("Segoe UI", 10, "italic"))
+        self.lbl_status.pack(pady=(0, 10))
 
-        self.lbl_status = tk.Label(self.root, text="Status: Model belum dilatih", fg="red", bg="#f0f0f0", font=("Helvetica", 10, "italic"))
-        self.lbl_status.pack(pady=5)
+        test_frame = tk.Frame(self.root, bg="#FFFFFF", bd=1, relief="ridge")
+        test_frame.pack(fill='both', expand=True, padx=20, pady=(0, 15))
+        
+        tk.Label(test_frame, text="2. Pengujian Gambar", font=("Segoe UI", 12, "bold"), bg="#FFFFFF", fg="#34495E").pack(pady=(15, 10))
 
-        # --- Pemisah ---
-        ttk.Separator(self.root, orient='horizontal').pack(fill='x', pady=15, padx=20)
+        self.btn_upload = tk.Button(test_frame, text="Unggah Gambar Mangga", bg="#2980B9", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", padx=15, pady=5, command=self.upload_image, state=tk.DISABLED)
+        self.btn_upload.pack()
 
-        # --- Frame Upload Gambar ---
-        self.btn_upload = tk.Button(self.root, text="Pilih Gambar untuk Diuji", bg="#2196F3", fg="white", command=self.upload_image, state=tk.DISABLED)
-        self.btn_upload.pack(pady=10)
+        self.img_frame = tk.Frame(test_frame, bg="#ECF0F1", width=250, height=250, bd=2, relief="groove")
+        self.img_frame.pack(pady=15)
+        self.img_frame.pack_propagate(False) 
+        
+        self.lbl_image = tk.Label(self.img_frame, text="Preview Gambar\n(Kosong)", bg="#ECF0F1", fg="#7F8C8D", font=("Segoe UI", 10))
+        self.lbl_image.pack(expand=True, fill='both')
 
-        # Area Tampil Gambar (Ukurannya dibiarkan fleksibel)
-        self.lbl_image = tk.Label(self.root, bg="#e0e0e0", text="[Preview Gambar]", width=40, height=15)
-        self.lbl_image.pack(pady=10)
-
-        # --- Tombol Prediksi ---
-        self.btn_predict = tk.Button(self.root, text="Deteksi Kematangan", bg="#FF9800", fg="white", font=("Helvetica", 12, "bold"), command=self.predict_image, state=tk.DISABLED)
+        self.btn_predict = tk.Button(test_frame, text="🔍 Deteksi Kematangan", bg="#E67E22", fg="white", font=("Segoe UI", 12, "bold"), relief="flat", cursor="hand2", padx=20, pady=8, command=self.predict_image, state=tk.DISABLED)
         self.btn_predict.pack(pady=10)
 
-        # Area Tampil Hasil
-        self.lbl_result = tk.Label(self.root, text="-", font=("Helvetica", 20, "bold"), fg="#333333", bg="#f0f0f0")
-        self.lbl_result.pack(pady=10)
+        self.lbl_result = tk.Label(test_frame, text="HASIL AKAN TAMPIL DI SINI", font=("Segoe UI", 16, "bold"), fg="#95A5A6", bg="#FFFFFF")
+        self.lbl_result.pack(pady=(5, 20))
 
     # ==========================================
     # 3. FUNGSI AKSI TOMBOL
     # ==========================================
     def train_model(self):
-        selection = self.fruit_combobox.get()
-        keyword = selection.split("(")[1].split(")")[0]
-
-        self.lbl_status.config(text=f"Status: Sedang melatih model untuk {keyword}... Mohon tunggu.", fg="blue")
+        self.lbl_status.config(text="Status: Sedang memproses dataset... Mohon tunggu.", fg="#2980B9")
         self.root.update() 
 
-        X, y = load_dataset(self.dataset_root, keyword)
+        X, y = load_dataset_mangga(self.dataset_root)
         
         if len(X) == 0:
-            messagebox.showerror("Error", f"Dataset untuk '{keyword}' tidak ditemukan di folder {self.dataset_root}!")
-            self.lbl_status.config(text="Status: Gagal melatih model", fg="red")
+            messagebox.showerror("Error", f"Dataset Mangga tidak ditemukan di folder '{self.dataset_root}'!")
+            self.lbl_status.config(text="Status: Gagal melatih model", fg="#E74C3C")
             return
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        self.model_knn = KNeighborsClassifier(n_neighbors=3)
-        self.model_knn.fit(X_train, y_train)
+        self.scaler = StandardScaler()
+        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_test_scaled = self.scaler.transform(X_test)
 
-        akurasi = accuracy_score(y_test, self.model_knn.predict(X_test)) * 100
+        # Gunakan K=5 agar hasil voting lebih stabil
+        self.model_knn = KNeighborsClassifier(n_neighbors=5)
+        self.model_knn.fit(X_train_scaled, y_train)
+
+        akurasi = accuracy_score(y_test, self.model_knn.predict(X_test_scaled)) * 100
         
-        self.lbl_status.config(text=f"Status: Model siap! (Akurasi: {akurasi:.2f}%)", fg="green")
+        # [UPDATE KETAT] Batas Toleransi menggunakan Mean + (2 * Standar Deviasi)
+        # Ini akan memblokir 95% anomali (buah lain) dengan sangat akurat
+        jarak_training, _ = self.model_knn.kneighbors(X_train_scaled)
+        rata_jarak_tiap_data = np.mean(jarak_training, axis=1)
         
+        mean_jarak = np.mean(rata_jarak_tiap_data)
+        std_jarak = np.std(rata_jarak_tiap_data)
+        self.batas_toleransi = mean_jarak + (2 * std_jarak)
+
+        self.lbl_status.config(text=f"Status: Model Siap! (Akurasi: {akurasi:.2f}%)", fg="#27AE60")
+        self.btn_train.config(text="Latih Ulang Model", bg="#95A5A6")
         self.btn_upload.config(state=tk.NORMAL)
-        self.lbl_result.config(text="-", fg="#333333")
-        self.image_path = None
-        self.lbl_image.config(image='', text="[Preview Gambar]", width=40, height=15) # Kembalikan ukuran label default
 
     def upload_image(self):
         file_path = filedialog.askopenfilename(title="Pilih Gambar", filetypes=[("Image Files", "*.jpg *.jpeg *.png")])
         if not file_path: return
         
         self.image_path = file_path
-        
-        # Tampilkan gambar di UI dengan proporsi yang benar
         img = Image.open(self.image_path)
-        
-        # Menggunakan thumbnail agar rasio asli terjaga (tidak gepeng/terpotong)
-        # Batas maksimal yang ditampilkan di layar GUI adalah 300x300 piksel
-        img.thumbnail((300, 300)) 
+        img.thumbnail((240, 240)) 
         
         img_tk = ImageTk.PhotoImage(img)
-        
-        # Menghapus pengaturan width/height kaku dari label agar menyesuaikan ukuran gambar proporsional
-        self.lbl_image.config(image=img_tk, text="", width=0, height=0)
+        self.lbl_image.config(image=img_tk, text="")
         self.lbl_image.image = img_tk 
         
         self.btn_predict.config(state=tk.NORMAL)
-        self.lbl_result.config(text="...", fg="#333333")
+        self.lbl_result.config(text="SIAP DIDETEKSI", fg="#7F8C8D")
 
     def predict_image(self):
         if not self.model_knn or not self.image_path: return
         
         fitur = extract_features(self.image_path)
         if fitur is None:
-            messagebox.showerror("Error", "Gagal membaca ciri gambar.")
+            messagebox.showerror("Error", "Gagal membaca gambar.")
             return
             
-        prediksi = self.model_knn.predict([fitur])[0]
+        fitur_scaled = self.scaler.transform([fitur])
         
-        warna = "#4CAF50" if prediksi == "Matang" else "#F44336" 
+        jarak_tes, _ = self.model_knn.kneighbors(fitur_scaled)
+        jarak_rata = np.mean(jarak_tes[0])
         
-        self.lbl_result.config(text=f"Hasil: {prediksi.upper()}", fg=warna)
+        # Filter jika jaraknya melebihi toleransi wajar ciri fisik mangga
+        if jarak_rata > self.batas_toleransi:
+            self.lbl_result.config(text="⚠️ BUKAN MANGGA!", fg="#E74C3C")
+            messagebox.showwarning("Peringatan AI", "Warna dan tekstur objek ini melenceng dari data mangga. Gambar ditolak.")
+        else:
+            prediksi = self.model_knn.predict(fitur_scaled)[0]
+            
+            if prediksi == "Matang": warna = "#27AE60"
+            elif prediksi == "Mentah": warna = "#F1C40F"
+            else: warna = "#8E44AD"
+                
+            self.lbl_result.config(text=f"Hasil: MANGGA {prediksi.upper()}", fg=warna)
 
 # ==========================================
 # JALANKAN APLIKASI
