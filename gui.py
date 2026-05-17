@@ -64,8 +64,8 @@ class FruitDetectorApp:
         self.root = root
         self.root.title("Sistem Deteksi Kematangan Mangga AI")
         # [UPDATE] Memanjangkan window ke bawah agar teks hasil tidak terpotong
-        self.root.geometry("650x780")
-        self.root.configure(bg="#F8F9FA") 
+        self.root.geometry("850x720")
+        self.root.configure(bg="#F4F6F9") 
         self.root.resizable(False, False)
         
         style = ttk.Style()
@@ -81,10 +81,10 @@ class FruitDetectorApp:
         self.setup_ui()
 
     def setup_ui(self):
-        header_frame = tk.Frame(self.root, bg="#2C3E50", pady=15)
+        header_frame = tk.Frame(self.root, bg="#2C3E50", height=100)
         header_frame.pack(fill='x')
-        tk.Label(header_frame, text="Deteksi Kualitas Mangga", font=("Segoe UI", 18, "bold"), fg="white", bg="#2C3E50").pack()
-        tk.Label(header_frame, text="Kenali mangga Mentah, Matang, atau Busuk dengan AI", font=("Segoe UI", 10), fg="#BDC3C7", bg="#2C3E50").pack()
+        tk.Label(header_frame, text="Deteksi Kualitas Mangga", font=("Segoe UI", 24, "bold"), fg="white", bg="#2C3E50").pack(pady=(15, 5))
+        tk.Label(header_frame, text="Kenali Mangga Mentah, Matang, atau Busuk dengan AI", font=("Segoe UI", 11), fg="#D5DBDB", bg="#2C3E50").pack()
 
         train_frame = tk.Frame(self.root, bg="#FFFFFF", bd=1, relief="ridge")
         train_frame.pack(fill='x', padx=20, pady=15)
@@ -102,7 +102,7 @@ class FruitDetectorApp:
         
         tk.Label(test_frame, text="2. Pengujian Gambar", font=("Segoe UI", 12, "bold"), bg="#FFFFFF", fg="#34495E").pack(pady=(15, 10))
 
-        self.btn_upload = tk.Button(test_frame, text="Unggah Gambar Mangga", bg="#2980B9", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", padx=15, pady=5, command=self.upload_image, state=tk.DISABLED)
+        self.btn_upload = tk.Button(test_frame, text="Unggah Gambar Mangga", bg="#2980B9", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", padx=15, pady=5, command=self.upload_image, state=tk.NORMAL)
         self.btn_upload.pack()
 
         self.img_frame = tk.Frame(test_frame, bg="#ECF0F1", width=250, height=250, bd=2, relief="groove")
@@ -112,7 +112,7 @@ class FruitDetectorApp:
         self.lbl_image = tk.Label(self.img_frame, text="Preview Gambar\n(Kosong)", bg="#ECF0F1", fg="#7F8C8D", font=("Segoe UI", 10))
         self.lbl_image.pack(expand=True, fill='both')
 
-        self.btn_predict = tk.Button(test_frame, text="🔍 Deteksi Kematangan", bg="#E67E22", fg="white", font=("Segoe UI", 12, "bold"), relief="flat", cursor="hand2", padx=20, pady=8, command=self.predict_image, state=tk.DISABLED)
+        self.btn_predict = tk.Button(test_frame, text="🔍 Deteksi Kematangan", bg="#E67E22", fg="white", font=("Segoe UI", 12, "bold"), relief="flat", cursor="hand2", padx=20, pady=8, command=self.predict_image, state=tk.NORMAL)
         self.btn_predict.pack(pady=10)
 
         # [UPDATE] Membesarkan font hasil agar lebih jelas
