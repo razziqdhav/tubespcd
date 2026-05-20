@@ -64,7 +64,7 @@ class FruitDetectorApp:
         self.root = root
         self.root.title("Sistem Deteksi Kematangan Mangga AI")
         # [UPDATE] Memanjangkan window ke bawah agar teks hasil tidak terpotong
-        self.root.geometry("850x720")
+        self.root.geometry("950x850")
         self.root.configure(bg="#F4F6F9") 
         self.root.resizable(False, False)
         
@@ -77,47 +77,182 @@ class FruitDetectorApp:
         self.train_dir = "KematanganBuahMangga/Train"
         self.test_dir = "KematanganBuahMangga/Test"
         self.image_path = None
+        self.preview_image = None
         
         self.setup_ui()
 
     def setup_ui(self):
-        header_frame = tk.Frame(self.root, bg="#2C3E50", height=100)
-        header_frame.pack(fill='x')
-        tk.Label(header_frame, text="Deteksi Kualitas Mangga", font=("Segoe UI", 24, "bold"), fg="white", bg="#2C3E50").pack(pady=(15, 5))
-        tk.Label(header_frame, text="Kenali Mangga Mentah, Matang, atau Busuk dengan AI", font=("Segoe UI", 11), fg="#D5DBDB", bg="#2C3E50").pack()
-
-        train_frame = tk.Frame(self.root, bg="#FFFFFF", bd=1, relief="ridge")
-        train_frame.pack(fill='x', padx=20, pady=15)
+        # =========================
+        # WARNA TEMA
+        # =========================
+        BG_COLOR = "#E0F2FE"
+        CARD_COLOR = "#FFFFFF"
+        BLUE = "#0EA5E9" 
+        SECONDARY = "#38BDF8"
+        TEXT = "#0F172A"
+        SUBTEXT = "#475569"
         
-        tk.Label(train_frame, text="1. Persiapan Sistem (Training)", font=("Segoe UI", 12, "bold"), bg="#FFFFFF", fg="#34495E").pack(pady=(10, 5))
+        self.root.configure(bg=BG_COLOR)
+        # =========================
+        # HEADER / NAVBAR
+        # =========================
+        navbar = tk.Frame(self.root, bg="#0EA5E9", height=70)
+        navbar.pack(fill="x")
+        logo = tk.Label(navbar,
+                        text="🍋 Mango AI Detector",
+                        font=("Segoe UI", 18, "bold"),
+                        bg="#0EA5E9",
+                        fg=TEXT)
+        logo.pack(side="left", padx=25, pady=15)
         
-        self.btn_train = tk.Button(train_frame, text="Mulai Pelatihan Model AI", bg="#27AE60", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", padx=15, pady=5, command=self.train_model)
-        self.btn_train.pack(pady=5)
-
-        self.lbl_status = tk.Label(train_frame, text="Status: Model belum dilatih", fg="#E74C3C", bg="#FFFFFF", font=("Segoe UI", 10, "italic"))
-        self.lbl_status.pack(pady=(0, 10))
-
-        test_frame = tk.Frame(self.root, bg="#FFFFFF", bd=1, relief="ridge")
-        test_frame.pack(fill='both', expand=True, padx=20, pady=(0, 15))
+        nav_btn = tk.Button(navbar,
+                            text="AI Detection",
+                            bg=SECONDARY,
+                            fg=TEXT,
+                            relief="flat",
+                            font=("Segoe UI", 10, "bold"),
+                            padx=20,
+                            pady=8,
+                            cursor="hand2")
+        nav_btn.pack(side="right", padx=25)
         
-        tk.Label(test_frame, text="2. Pengujian Gambar", font=("Segoe UI", 12, "bold"), bg="#FFFFFF", fg="#34495E").pack(pady=(15, 10))
-
-        self.btn_upload = tk.Button(test_frame, text="Unggah Gambar Mangga", bg="#2980B9", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", padx=15, pady=5, command=self.upload_image, state=tk.NORMAL)
-        self.btn_upload.pack()
-
-        self.img_frame = tk.Frame(test_frame, bg="#ECF0F1", width=250, height=250, bd=2, relief="groove")
-        self.img_frame.pack(pady=15)
-        self.img_frame.pack_propagate(False) 
+        # =========================
+        # HERO SECTION
+        # =========================
+        hero = tk.Frame(self.root, bg=BG_COLOR)
+        hero.pack(pady=25)
         
-        self.lbl_image = tk.Label(self.img_frame, text="Preview Gambar\n(Kosong)", bg="#ECF0F1", fg="#7F8C8D", font=("Segoe UI", 10))
-        self.lbl_image.pack(expand=True, fill='both')
+        badge = tk.Label(hero,
+                         text="✨ AI Powered Mango Classification",
+                         bg="#BAE6FD",
+                         fg="#0369A1",
+                         font=("Segoe UI", 10),
+                         padx=15,
+                         pady=5)
+        badge.pack(pady=10)
+        
+        title = tk.Label(hero,
+                         text="Detect Mango Ripeness\nQuickly & Accurately",
+                         bg=BG_COLOR,
+                         fg=TEXT,
+                         font=("Segoe UI", 28, "bold"),
+                         justify="center")
+        title.pack()
+        
+        desc = tk.Label(hero,
+                        text="Unggah gambar mangga dan biarkan AI menentukan\napakah mangga matang, mentah, atau busuk.",
+                        bg=BG_COLOR,
+                        fg=SUBTEXT,
+                        font=("Segoe UI", 12),
+                        justify="center")
+        desc.pack(pady=15)
+        
+        # =========================
+        # MAIN CARD
+        # =========================
+        main_card = tk.Frame(self.root,
+                             bg=CARD_COLOR,
+                             bd=0,
+                             highlightthickness=0)
+        main_card.pack(padx=25, pady=10, fill="both", expand=True)
+        
+        # =========================
+        # TRAIN SECTION
+        # =========================
+        train_title = tk.Label(main_card,
+                               text="Train AI Model",
+                               bg=CARD_COLOR,
+                               fg=TEXT,
+                               font=("Segoe UI", 16, "bold"))
+        train_title.pack(pady=(20, 10))
+        
+        self.btn_train = tk.Button(main_card,
+                                   text="Mulai Training",
+                                   bg=SECONDARY,
+                                   fg=TEXT,
+                                   activebackground="#6D28D9",
+                                   activeforeground="white",
+                                   relief="flat",
+                                   cursor="hand2",
+                                   font=("Segoe UI", 11, "bold"),
+                                   padx=20,
+                                   pady=10,
+                                   command=self.train_model)
+        self.btn_train.pack()
+        
+        self.lbl_status = tk.Label(main_card,
+                                   text="Model belum dilatih",
+                                   bg=CARD_COLOR,
+                                   fg="#FCA5A5",
+                                   font=("Segoe UI", 10))
+        self.lbl_status.pack(pady=10)
+        
+        # =========================
+        # IMAGE PREVIEW
+        # =========================
+        self.img_frame = tk.Frame(main_card,
+                                  bg="#0EA5E9",
+                                  width=320,
+                                  height=240)
+        self.img_frame.pack(pady=20)
+        
+        self.img_frame.pack_propagate(False)
+        
+        self.lbl_image = tk.Label(self.img_frame, 
+                                  bg="#BAE6FD",
+                                  fg="#0369A1",
+                                  text="Preview Gambar",
+                                  font=("Segoe UI", 12))
+        self.lbl_image.pack(fill="both", expand=True)
+        
+        button_container = tk.Frame(main_card, bg=CARD_COLOR, height=100)
+        button_container.pack(pady=20)
+        button_container.pack_propagate(False)
 
-        self.btn_predict = tk.Button(test_frame, text="🔍 Deteksi Kematangan", bg="#E67E22", fg="white", font=("Segoe UI", 12, "bold"), relief="flat", cursor="hand2", padx=20, pady=8, command=self.predict_image, state=tk.NORMAL)
-        self.btn_predict.pack(pady=10)
-
-        # [UPDATE] Membesarkan font hasil agar lebih jelas
-        self.lbl_result = tk.Label(test_frame, text="HASIL AKAN TAMPIL DI SINI", font=("Segoe UI", 18, "bold"), fg="#95A5A6", bg="#FFFFFF")
-        self.lbl_result.pack(pady=(5, 20))
+        # =========================
+        # BUTTON UPLOAD
+        # # =========================
+        self.btn_upload = tk.Button(button_container, text="📁 Upload Gambar",
+                                    bg="#0EA5E9", fg=TEXT,
+                                    activebackground="#6D28D9",
+                                    activeforeground="white",
+                                    relief="raised", bd=2, cursor="hand2",
+                                    font=("Segoe UI", 11, "bold"),
+                                    width=18, height=2, command=self.predict_image)
+        self.btn_upload.pack(side="left", padx=15)
+        
+        # =========================
+        # BUTTON DETEKSI
+        # =========================
+        self.btn_predict = tk.Button(button_container,
+                                     text="🔍 Deteksi",
+                                     bg="#38BDF8",
+                                     fg=TEXT,
+                                     activebackground="#6D28D9",
+                                     activeforeground="white",
+                                     relief="flat",
+                                     cursor="hand2",
+                                     font=("Segoe UI", 11, "bold"),
+                                     padx=20,
+                                     pady=10,
+                                     command=self.predict_image)
+        self.btn_predict.pack(side="left", padx=15)
+        
+        # =========================
+        # RESULT BOX
+        # =========================
+        result_frame = tk.Frame(main_card,
+                                bg="#E0F2FE",
+                                padx=20,
+                                pady=20)
+        result_frame.pack(pady=(10, 25), padx=20, fill="x")
+        
+        self.lbl_result = tk.Label(result_frame,
+                                   text="HASIL DETEKSI",
+                                   bg="#1E293B",
+                                   fg="#0369A1",
+                                   font=("Segoe UI", 20, "bold"))
+        self.lbl_result.pack()
 
     def train_model(self):
         try:
@@ -160,18 +295,25 @@ class FruitDetectorApp:
 
     def upload_image(self):
         file_path = filedialog.askopenfilename(title="Pilih Gambar", filetypes=[("Image Files", "*.jpg *.jpeg *.png")])
-        if not file_path: return
+        
+        if not file_path:
+            return
         
         self.image_path = file_path
-        img = Image.open(self.image_path)
-        img.thumbnail((240, 240)) 
         
-        img_tk = ImageTk.PhotoImage(img)
-        self.lbl_image.config(image=img_tk, text="")
-        self.lbl_image.image = img_tk 
-        
-        self.btn_predict.config(state=tk.NORMAL)
-        self.lbl_result.config(text="SIAP DIDETEKSI", fg="#7F8C8D")
+        try:
+            img = Image.open(file_path)
+            img = img.resize((280, 220))
+            self.preview_image = ImageTk.PhotoImage(img)
+            
+            self.lbl_image.config(image=self.preview_image, text="")
+            
+            self.lbl_image.image = self.preview_image
+            
+            self.lbl_result.config(text="✅ Gambar berhasil diupload", fg="#38BDF8")
+            
+        except Exception as e:
+            messagebox.showerror("Error Upload", f"Gagal membuka gambar\n\n{str(e)}")
 
     def predict_image(self):
         try:
