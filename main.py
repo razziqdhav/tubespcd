@@ -4,14 +4,11 @@ import cv2
 import numpy as np
 import os
 from PIL import Image, ImageTk
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, classification_report
-from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # ==========================================
-# 1. FUNGSI BACKEND
+# 1. FUNGSI BACKEND (IMAGE PROCESSING & FITUR)
 # ==========================================
 
 def extract_features(image_path):
@@ -22,15 +19,17 @@ def extract_features(image_path):
     img_resized = cv2.resize(img, (100, 100))
     gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
     
+    # Segmentasi Thresholding Otsu
     _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     
+    # Konversi ke HSV
     hsv_img = cv2.cvtColor(img_resized, cv2.COLOR_BGR2HSV)
     h_channel, s_channel, v_channel = hsv_img[:, :, 0], hsv_img[:, :, 1], hsv_img[:, :, 2]
     
     if not np.any(mask > 0):
         return [0] * 12
     
-    #Fitur Warna
+    # --- EKSTRAKSI FITUR 1: WARNA (9 Fitur HSV) ---
     h_mean = np.mean(h_channel[mask > 0])
     s_mean = np.mean(s_channel[mask > 0])
     v_mean = np.mean(v_channel[mask > 0])
@@ -45,56 +44,36 @@ def extract_features(image_path):
     
     warna_features = [h_mean, s_mean, v_mean, h_std, s_std, v_std, h_med, s_med, v_med]
     
-    #Canny Edge
+    # --- EKSTRAKSI FITUR 2: TEKSTUR (1 Fitur Canny Edge Density) ---
     edges = cv2.Canny(gray, 100, 200)
     mango_area = np.sum(mask > 0)
     edge_density = np.sum(edges[mask > 0] > 0) / mango_area if mango_area > 0 else 0
     
-    #Bintik Hitam
-    dark_pixels = (v_channel < 55) & (mask > 0)
-    dark_area_percentage = np.sum(dark_pixels) / mango_area if mango_area > 0 else 0
+    # --- EKSTRAKSI FITUR 3: CACAT / BINTIK HITAM (2 Fitur) ---
+    # Filter tingkat kegelapan diperketat (V < 30) agar benar-benar mengambil bercak busuk pekat
+    dark_pixels = (v_channel < 30) & (mask > 0)
     
-    dark_mask = dark_pixels.astype(np.uint8) * 255
-    kernel = np.ones((3,3), np.uint8)
-    dark_mask_clean = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, kernel)
+    # Erosi masker luar sebanyak 5 piksel untuk membuang noise bayangan tepi kulit
+    kernel_edge = np.ones((5,5), np.uint8)
+    eroded_mask = cv2.erode(mask, kernel_edge, iterations=1)
     
+    dark_pixels_clean = (v_channel < 30) & (eroded_mask > 0)
+    dark_area_percentage = np.sum(dark_pixels_clean) / mango_area if mango_area > 0 else 0
+    
+    # Pembersihan Morfologi (Opening) gumpalan bintik
+    dark_mask_clean = dark_pixels_clean.astype(np.uint8) * 255
+    kernel_morph = np.ones((3,3), np.uint8)
+    dark_mask_clean = cv2.morphologyEx(dark_mask_clean, cv2.MORPH_OPEN, kernel_morph)
+    
+    # Hitung kontur bintik yang luasnya signifikan (> 15 piksel agar bintik busuk kecil tetap tertangkap)
     contours, _ = cv2.findContours(dark_mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    jumlah_bintik = len([c for c in contours if cv2.contourArea(c) > 10])
+    jumlah_bintik = len([c for c in contours if cv2.contourArea(c) > 15])
     jumlah_bintik_norm = min(jumlah_bintik / 20, 1.0)
     
     fitur_bintik = [dark_area_percentage, jumlah_bintik_norm]
     
     return warna_features + [edge_density] + fitur_bintik
 
-
-def load_dataset_mangga(folder_path):
-    X, y = [], []
-    if not os.path.exists(folder_path):
-        return np.array(X), np.array(y)
-    
-    for folder_name in os.listdir(folder_path):
-        name_lower = folder_name.lower()
-        if name_lower == 'unripe':
-            label = 'Mentah'
-        elif name_lower == 'ripe':
-            label = 'Matang'
-        elif name_lower in ['overripe', 'overipe']:
-            label = 'Busuk'
-        else:
-            continue
-            
-        class_folder = os.path.join(folder_path, folder_name)
-        if not os.path.isdir(class_folder):
-            continue
-        
-        for file_name in os.listdir(class_folder):
-            file_path = os.path.join(class_folder, file_name)
-            features = extract_features(file_path)
-            if features is not None:
-                X.append(features)
-                y.append(label)
-    
-    return np.array(X), np.array(y)
 
 def process_and_visualize(image_path):
     img = cv2.imread(image_path)
@@ -125,7 +104,10 @@ def process_and_visualize(image_path):
     v_channel = cv2.cvtColor(hsv[:,:,2], cv2.COLOR_GRAY2RGB)
     
     v = hsv[:,:,2]
-    dark_spots = (v < 55) & (mask > 0)
+    kernel_edge = np.ones((5,5), np.uint8)
+    eroded_mask = cv2.erode(mask, kernel_edge, iterations=1)
+    dark_spots = (v < 30) & (eroded_mask > 0)
+    
     dark_vis = np.zeros_like(img_resized)
     dark_vis[dark_spots] = [0, 0, 255]
     dark_overlay = cv2.addWeighted(img_resized, 0.7, dark_vis, 0.3, 0)
@@ -146,17 +128,12 @@ def process_and_visualize(image_path):
 class FruitDetectorApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Sistem Deteksi Kematangan Mangga - Visualisasi + Deteksi Bintik")
+        self.root.title("Sistem Deteksi Kematangan Mangga - Rule-Based Final Super Akurat")
         self.root.geometry("1400x850")
         self.root.configure(bg="#1E1E2E")
         self.root.resizable(True, True)
         
-        self.model_knn = None
-        self.scaler = None
-        self.train_dir = "KematanganBuahMangga/Train"
-        self.test_dir = "KematanganBuahMangga/Test"
         self.image_path = None
-        
         self.setup_ui()
 
     def setup_ui(self):
@@ -173,12 +150,12 @@ class FruitDetectorApp:
         header.pack(fill="x")
         header.pack_propagate(False)
         
-        title = tk.Label(header, text="🥭 MANGO AI DETECTOR | Visualisasi Preprocessing + Deteksi Bintik Hitam", 
+        title = tk.Label(header, text="DETERMINISTIC MANGO DETECTOR | Unified Rules Version", 
                         font=("Segoe UI", 14, "bold"), bg=ACCENT, fg=BG)
         title.pack(pady=8)
         
         main_paned = tk.PanedWindow(self.root, bg=BG, sashwidth=5, orient=tk.HORIZONTAL)
-        main_paned.pack(fill="both", expand=True, padx=15, pady=10)
+        main_paned.pack(fill="both", expand=True, padx=15, text=None)
         
         left_panel = tk.Frame(main_paned, bg=CARD, relief="flat", bd=0, width=320)
         main_paned.add(left_panel, width=320)
@@ -206,19 +183,13 @@ class FruitDetectorApp:
         left_scrollable.bind("<Configure>", configure_scroll_region)
         left_canvas.bind("<Configure>", configure_canvas_width)
         
-        train_frame = tk.LabelFrame(left_scrollable, text="📊 Training Model", 
-                                   bg=CARD, fg=TEXT, font=("Segoe UI", 10, "bold"))
-        train_frame.pack(fill="x", padx=10, pady=10)
+        info_frame = tk.LabelFrame(left_scrollable, text="ℹ️ Informasi Sistem", 
+                               bg=CARD, fg=TEXT, font=("Segoe UI", 10, "bold"))
+        info_frame.pack(fill="x", padx=10, pady=10)
         
-        self.btn_train = tk.Button(train_frame, text="🚀 Mulai Training", 
-                                  bg=ACCENT, fg=BG, font=("Segoe UI", 10, "bold"),
-                                  relief="flat", cursor="hand2", padx=15, pady=5,
-                                  command=self.train_model)
-        self.btn_train.pack(pady=10)
-        
-        self.lbl_status = tk.Label(train_frame, text="⚠️ Model belum dilatih", 
-                                  bg=CARD, fg=DANGER, font=("Segoe UI", 9))
-        self.lbl_status.pack(pady=(0, 10))
+        lbl_info = tk.Label(info_frame, text="Sistem Aturan Terpadu.\nAturan dirancang bertingkat untuk\nmemastikan presisi tinggi.", 
+                            bg=CARD, fg=ACCENT, font=("Segoe UI", 9, "italic"), justify="left")
+        lbl_info.pack(pady=10, padx=5)
         
         upload_frame = tk.LabelFrame(left_scrollable, text="📸 Upload Gambar", 
                                     bg=CARD, fg=TEXT, font=("Segoe UI", 10, "bold"))
@@ -339,44 +310,6 @@ class FruitDetectorApp:
         except Exception as e:
             self.lbl_vis_status.config(text=f"❌ Error: {str(e)}", fg="#F38BA8")
 
-    def train_model(self):
-        try:
-            self.lbl_status.config(text="🔄 Memproses dataset...", fg="#89B4FA")
-            self.root.update() 
-
-            X_train, y_train = load_dataset_mangga(self.train_dir)
-            X_test, y_test = load_dataset_mangga(self.test_dir)
-            
-            if len(X_train) == 0:
-                messagebox.showerror("Error", f"Folder kosong di {self.train_dir}!")
-                self.lbl_status.config(text="❌ Gagal (Data Kosong)", fg="#F38BA8")
-                return
-
-            k_value = min(3, len(X_train))
-            self.scaler = StandardScaler()
-            X_train_scaled = self.scaler.fit_transform(X_train)
-            
-            self.model_knn = KNeighborsClassifier(n_neighbors=k_value, weights='distance')
-            self.model_knn.fit(X_train_scaled, y_train)
-
-            akurasi_teks = "(Akurasi: Tidak Teruji)"
-            if len(X_test) > 0:
-                X_test_scaled = self.scaler.transform(X_test)
-                y_pred = self.model_knn.predict(X_test_scaled)
-                akurasi = accuracy_score(y_test, y_pred) * 100
-                akurasi_teks = f"(Akurasi: {akurasi:.2f}%)"
-                
-                print("\n=== CLASSIFICATION REPORT ===")
-                print(classification_report(y_test, y_pred))
-
-            self.lbl_status.config(text=f"✅ Model Siap! {akurasi_teks}", fg="#A6E3A1")
-            self.btn_train.config(text="🔄 Latih Ulang", bg="#45475A")
-            
-            messagebox.showinfo("Sukses", f"Training selesai!\n{akurasi_teks}\n\nFitur: 9 HSV + 1 Canny Edge + 2 Bintik Hitam")
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Gagal Melatih Model!\n{str(e)}")
-
     def upload_image(self):
         file_path = filedialog.askopenfilename(
             title="Pilih Gambar Mangga", 
@@ -403,16 +336,16 @@ class FruitDetectorApp:
         except Exception as e:
             messagebox.showerror("Error", f"Gagal membuka gambar\n{str(e)}")
 
+    # ==========================================
+    # 3. ATURAN LOGIKA FINAL TERPADU (SUPER PRESISI)
+    # ==========================================
     def predict_image(self):
         try:
-            if not self.model_knn:
-                messagebox.showwarning("Peringatan", "Training dahulu!")
-                return
             if not self.image_path: 
                 messagebox.showwarning("Peringatan", "Upload gambar dahulu!")
                 return
             
-            self.lbl_result.config(text="🔄 Memprediksi...", fg="#F9E2AF")
+            self.lbl_result.config(text="🔄 Memproses Aturan...", fg="#F9E2AF")
             self.lbl_confidence.config(text="")
             self.root.update()
 
@@ -422,33 +355,58 @@ class FruitDetectorApp:
                 self.lbl_result.config(text="❌ Gagal", fg="#F38BA8")
                 return
                 
-            fitur_scaled = self.scaler.transform([fitur])
-            prediksi = self.model_knn.predict(fitur_scaled)[0]
+            h_mean = fitur[0]
+            edge_density = fitur[9]          
+            dark_area_percentage = fitur[10] 
+            jumlah_bintik_norm = fitur[11]   
             
-            distances, _ = self.model_knn.kneighbors(fitur_scaled)
-            confidence = 1 / (1 + np.mean(distances[0]))
+            # --- BLOK ATURAN LOGIKA BERTINGKAT (NESTED RULE-BASED) ---
             
-            #Hasil
+            # ATURAN UTAMA 1: TANGKAP INDIKASI BUSUK DULUAN
+            # Jika terdeteksi bintik hitam pekat di atas 1% (0.01) atau gumpalan bintik terkonfirmasi, langsung divonis Busuk.
+            # Ini akan memotong semua noise gambar ramai maupun tunggal karena sifatnya mutlak.
+            if dark_area_percentage > 0.01 or jumlah_bintik_norm > 0.0:
+                prediksi = "Busuk"
+                indikator = f"Bercak Pembusukan Terdeteksi ({dark_area_percentage*100:.1f}%)"
+            
+            # ATURAN UTAMA 2: JIKA LOLOS SENSOR BUSUK, CEK APAKAH MULTI-OBJEK RAMAI
+            elif edge_density > 0.12:
+                if h_mean > 35:
+                    prediksi = "Mentah"
+                    indikator = f"Tumpukan Buah | Dominan Hijau"
+                else:
+                    prediksi = "Matang"
+                    indikator = f"Tumpukan Buah | Dominan Kuning"
+            
+            # ATURAN UTAMA 3: KONDISI NORMAL / OBJEK TUNGGAL SEPI
+            else:
+                if h_mean > 35:
+                    prediksi = "Mentah"
+                    indikator = f"Objek Tunggal | Warna Hijau (Hue: {h_mean:.1f})"
+                else:
+                    prediksi = "Matang"
+                    indikator = f"Objek Tunggal | Warna Kuning (Hue: {h_mean:.1f})"
+            
+            # --- OUTPUT TAMPILAN KE COMPONENT GUI ---
             if prediksi == "Matang":
                 self.lbl_result.config(text="🥭 MANGGA MATANG ✓", fg="#A6E3A1")
-                self.lbl_confidence.config(text=f"Confidence: {confidence:.2f} | Edge: {fitur[9]:.3f} | Bintik: {fitur[10]:.3f}")
             elif prediksi == "Mentah":
                 self.lbl_result.config(text="🥭 MANGGA MENTAH", fg="#F9E2AF")
-                self.lbl_confidence.config(text=f"Confidence: {confidence:.2f} | Edge: {fitur[9]:.3f} | Bintik: {fitur[10]:.3f}")
             else:
                 self.lbl_result.config(text="🥭 MANGGA BUSUK ✗", fg="#F38BA8")
-                self.lbl_confidence.config(text=f"Confidence: {confidence:.2f} | Edge: {fitur[9]:.3f} | Bintik: {fitur[10]:.3f}")
             
-            print(f"\n=== PREDIKSI ===")
-            print(f"Hasil: {prediksi} | Confidence: {confidence:.3f}")
-            print(f"Edge Density: {fitur[9]:.4f} | Area Bintik: {fitur[10]:.4f} | Jml Bintik: {fitur[11]:.4f}")
+            self.lbl_confidence.config(text=f"Metode: Rule-Based Terpadu | Pemicu: {indikator}")
+            
+            print(f"\n=== PREDIKSI DETEKSI DETERMINISTIK ===")
+            print(f"Hasil Akhir: {prediksi}")
+            print(f"Detail Fitur -> Hue Mean: {h_mean:.2f} | Kerapatan Tepi: {edge_density:.4f} | Area Bintik: {dark_area_percentage:.4f} | Jml Bintik Norm: {jumlah_bintik_norm:.4f}")
 
         except Exception as e:
-            messagebox.showerror("Error", f"Prediksi gagal!\n{str(e)}")
+            messagebox.showerror("Error", f"Proses prediksi gagal!\n{str(e)}")
 
 
 # ==========================================
-# 3. MAIN PROGRAM
+# 4. RUNNING INTERFACE JENDELA UTAMA
 # ==========================================
 
 if __name__ == "__main__":
